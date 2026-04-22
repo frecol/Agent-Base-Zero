@@ -1,0 +1,22 @@
+[project]
+name = "agent-base-zero"
+version = "0.1.0"
+description = "A step-by-step guide to building a general-purpose AI agent, from simple to complex."
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "openai>=1.0.0",
+    "pydantic-settings>=2.14.0",
+    "python-dotenv>=1.0.0",
+    "rich>=15.0.0",
+]
+
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["agent*", "tools*"]
+
+[project.scripts]
+genesis = "agent.cli:run_cli"
