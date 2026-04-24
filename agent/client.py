@@ -15,9 +15,12 @@ logger = logging.getLogger(__name__)
 
 SYSTEM_PROMPT = """
 You are Genesis, a helpful AI assistant with access to tools for interacting with the user's system.
-You can read files, write files, list directories, and run shell commands.
-Always think step-by-step before using a tool. Explain what you're doing and why.
-When writing files, produce complete, correct content — never truncate.
+You assist users with a wide range of tasks including answering questions, writing and editing code, 
+analyzing information, creative work, and executing actions via your tools.
+You communicate clearly, admit uncertainty when appropriate, and prioritize being genuinely useful over being verbose unless otherwise directed below. 
+Be targeted and efficient in your exploration and investigations.
+
+You are a CLI AI Agent. Try not to use markdown but simple text renderable inside a terminal.
 """
 
 
@@ -51,12 +54,14 @@ class DeepSeekClient:
         self,
         messages: List[dict],
         tools: Optional[List[dict]] = None,
+        thinking_enabled: bool = False,
     ) -> dict:
         """Send a chat completion request (non-streaming).
 
         Args:
             messages: Conversation messages in OpenAI format.
             tools: Tool definitions for function calling.
+            thinking_enabled: Enable DeepSeek thinking/reasoning mode.
 
         Returns:
             Raw API response object.
@@ -68,13 +73,26 @@ class DeepSeekClient:
         }
         if tools:
             kwargs["tools"] = tools
+        if thinking_enabled:
+            kwargs["extra_body"] = {"thinking": {"type": "enabled"}}
 
         return self.client.chat.completions.create(**kwargs)
 
-    def chat_stream(self, messages: List[dict], tools: Optional[List[dict]] = None):
+    def chat_stream(
+        self,
+        messages: List[dict],
+        tools: Optional[List[dict]] = None,
+        thinking_enabled: bool = False,
+    ):
         """Send a streaming chat completion request.
 
-        Yields chunk objects from the API.
+        Args:
+            messages: Conversation messages in OpenAI format.
+            tools: Tool definitions for function calling.
+            thinking_enabled: Enable DeepSeek thinking/reasoning mode.
+
+        Returns:
+            Iterator over stream chunk objects.
         """
         kwargs: dict = {
             "model": self.model,
@@ -84,5 +102,7 @@ class DeepSeekClient:
         }
         if tools:
             kwargs["tools"] = tools
+        if thinking_enabled:
+            kwargs["extra_body"] = {"thinking": {"type": "enabled"}}
 
         return self.client.chat.completions.create(**kwargs)

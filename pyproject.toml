@@ -1,6 +1,6 @@
 [project]
 name = "agent-base-zero"
-version = "0.1.0"
+version = "0.2.0"
 description = "A step-by-step guide to building a general-purpose AI agent, from simple to complex."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -9,6 +9,8 @@ dependencies = [
     "pydantic-settings>=2.14.0",
     "python-dotenv>=1.0.0",
     "rich>=15.0.0",
+    "ddgs>=7.0.0",
+    "tzdata>=2024.1",
 ]
 
 [build-system]

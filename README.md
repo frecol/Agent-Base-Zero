@@ -12,13 +12,13 @@ The entire codebase evolves through git commits — each version introduces a ne
 | Version | Focus | Key Concepts |
 |---------|-------|-------------|
 | **v0.1** | Minimum viable agent | Agent loop, tool calling, CLI, tool registry |
-| v0.2 | Streaming output | SSE streaming, real-time display |
+| **v0.2** | Streaming & thinking | Streaming output, DeepSeek thinking mode, web search, current_time tool |
 | v0.3 | Memory system | Session persistence, long-term memory, context compression |
 | v0.4 | Skill system | Skill registration, Prompt templates, tool composition |
 | v0.5 | Planning & execution | Task decomposition, multi-step planning, self-reflection |
 | v0.6 | Social media integration | API integrations, async operations |
 | v0.7 | Multi-agent collaboration | Agent cooperation, task routing |
-Current progress: v0.1
+Current progress: v0.2
 
 ## Quick Start
 
@@ -41,7 +41,7 @@ uv run genesis
 
 ## v0.1 — Minimum Viable Agent
 
-The current version. A working agent in ~300 lines of Python.
+A working agent in ~300 lines of Python.
 
 **What it does:**
 - Interactive CLI with Rich-powered display
@@ -61,21 +61,40 @@ User Input → Agent → LLM
 
 The loop continues until the LLM responds with plain text (no more tool calls), up to 50 iterations.
 
+## v0.2 — Streaming, Thinking & Web Search
+
+The current version. Built on top of v0.1 with three major additions:
+
+**Streaming output** — Real-time token-by-token rendering. The new `run_turn_stream()` method yields structured `StreamEvent` objects (`thinking` / `content` / `done`), giving the CLI full control over display phases.
+
+**Thinking mode** — Integrates DeepSeek's reasoning API. The LLM produces a visible chain-of-thought before answering. `reasoning_content` is conditionally preserved or stripped in `_build_messages()` to balance reasoning continuity against token cost.
+
+**Web search tools** — Two new tools break the local-only limitation:
+- `web_search` — DuckDuckGo-powered web search, no API key required
+- `current_time` — Current date/time query, designed to work with web_search (e.g. "today's news" → get date → search)
+
+Other improvements: `max_tokens` raised to 8192, new CLI commands (`/stream`, `/think`, `/status`), refined system prompt, and enhanced tool call display with Rich `Panel` components.
+
 ## Project Structure
 
 ```
 Agent-Base-Zero/
 ├── agent/
 │   ├── config.py          # Pydantic Settings, reads from .env
-│   ├── client.py          # DeepSeek API client (OpenAI SDK)
-│   ├── agent.py           # Core agent loop (LLM ↔ Tools)
-│   └── cli.py             # Interactive CLI (Rich)
+│   ├── client.py          # DeepSeek API client (OpenAI SDK, streaming + thinking)
+│   ├── agent.py           # Core agent loop + StreamEvent streaming
+│   └── cli.py             # Interactive CLI (Rich, streaming renderer)
 ├── tools/
 │   ├── registry.py        # Tool registry (register + dispatch)
 │   ├── read_file.py       # Read file contents
 │   ├── write_file.py      # Write to files
 │   ├── list_dir.py        # List directory entries
-│   └── run_command.py     # Execute shell commands
+│   ├── run_command.py     # Execute shell commands
+│   ├── web_search.py      # Web search via DuckDuckGo
+│   └── current_time.py    # Current date/time query
+├── docs/
+│   ├── v01/               # v0.1 architecture docs (zh + en)
+│   └── v02/               # v0.2 architecture docs (zh + en)
 ├── main.py                # Entry point (python main.py)
 ├── pyproject.toml         # Project config & dependencies
 └── .env                   # Your API key (not tracked)

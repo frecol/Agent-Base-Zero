@@ -7,7 +7,7 @@ from tools.registry import registry
 
 SCHEMA = {
     "name": "run_command",
-    "description": "Execute a shell command and return its stdout, stderr, and exit code.",
+    "description": "Execute a shell command and return its stdout, stderr, and exit code.This command is not allowed to perform network searches.",
     "parameters": {
         "type": "object",
         "properties": {
