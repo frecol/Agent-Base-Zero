@@ -12,6 +12,8 @@ from dataclasses import dataclass, field
 from typing import Callable, Generator, List, Optional
 
 from agent.client import DeepSeekClient, SYSTEM_PROMPT
+from agent.session import generate_session_id
+from agent.tokens import needs_compression
 from tools.registry import registry
 
 logger = logging.getLogger(__name__)
@@ -36,11 +38,14 @@ class Agent:
         client: Optional[DeepSeekClient] = None,
         system_prompt: Optional[str] = None,
         max_iterations: int = MAX_TOOL_ITERATIONS,
+        session_id: Optional[str] = None,
     ):
         self.client = client or DeepSeekClient()
         self.system_prompt = system_prompt or SYSTEM_PROMPT
         self.max_iterations = max_iterations
         self.messages: List[dict] = []
+        self.session_id = session_id or generate_session_id()
+        self._memory_text: str = ""
 
     def _build_messages(self, thinking_enabled: bool = False) -> List[dict]:
         """Prepend system prompt to conversation history.
@@ -51,6 +56,9 @@ class Agent:
                 If False, strip reasoning_content to save bandwidth.
         """
         result = [{"role": "system", "content": self.system_prompt}]
+        # v0.3: Inject long memory as a separate system message
+        if self._memory_text:
+            result.append({"role": "system", "content": self._memory_text})
         for msg in self.messages:
             if not thinking_enabled and "reasoning_content" in msg:
                 msg = {k: v for k, v in msg.items() if k != "reasoning_content"}
@@ -149,9 +157,11 @@ class Agent:
 
             # No tool calls — this is the final response
             self.messages.append(msg_dict)
+            self._post_turn()
             return msg_dict["content"]
 
         # Exhausted iterations
+        self._post_turn()
         return "[Agent reached maximum tool iterations without a final response.]"
 
     def run_turn_stream(
@@ -255,12 +265,14 @@ class Agent:
                 if reasoning_content:
                     msg_dict["reasoning_content"] = reasoning_content
                 self.messages.append(msg_dict)
+                self._post_turn()
                 yield StreamEvent(
                     type="done",
                     data={"content": content, "reasoning": reasoning_content},
                 )
                 return content
 
+        self._post_turn()
         yield StreamEvent(
             type="done",
             data={"content": "[Agent reached maximum tool iterations without a final response.]"},
@@ -269,6 +281,65 @@ class Agent:
     def reset(self) -> None:
         """Clear conversation history."""
         self.messages.clear()
+
+    # ------------------------------------------------------------------
+    # v0.3: Session & Memory integration
+    # ------------------------------------------------------------------
+
+    def load_session_data(self, session_id: str) -> None:
+        """Load messages from a previous session. Used by /resume."""
+        from agent.session import load_session
+
+        session = load_session(session_id)
+        self.session_id = session_id
+        self.messages = session["messages"]
+
+    def new_session(self) -> str:
+        """Start a fresh session. Returns the new session_id."""
+        self.session_id = generate_session_id()
+        self.messages.clear()
+        return self.session_id
+
+    def load_memory(self) -> None:
+        """Load long memory and cache the formatted text for injection."""
+        from agent.memory import load_memory as load_mem, format_memory_for_prompt
+
+        entries = load_mem()
+        self._memory_text = format_memory_for_prompt(entries)
+
+    def _post_turn(self) -> None:
+        """Run post-turn hooks: compression check, session save."""
+        from agent.config import settings
+
+        # 1. Compression check
+        if needs_compression(self.messages, settings.max_context_tokens, settings.compression_threshold):
+            try:
+                from agent.tokens import run_memory_check_then_compress
+
+                self.messages = run_memory_check_then_compress(
+                    self.client,
+                    self.messages,
+                    head_keep=settings.head_keep,
+                    tail_keep=settings.tail_keep,
+                )
+            except Exception as e:
+                logger.warning("Compression failed: %s", e)
+
+        # 2. Session save
+        if settings.auto_save:
+            try:
+                from agent.session import save_session, generate_title
+
+                title = ""
+                first_msg = next(
+                    (m for m in self.messages if m.get("role") == "user"),
+                    None,
+                )
+                if first_msg:
+                    title = generate_title(first_msg.get("content", ""))
+                save_session(self.session_id, self.messages, title=title)
+            except Exception as e:
+                logger.warning("Session save failed: %s", e)
 
 
 def _make_tool_call_namespace(acc: dict) -> types.SimpleNamespace:

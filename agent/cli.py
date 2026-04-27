@@ -20,7 +20,7 @@ _ANSI_DIM = "\033[2m"
 _ANSI_RESET = "\033[0m"
 
 # Braille spinner animation frames
-_SPINNER_FRAMES = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
+_SPINNER_FRAMES = "⡁⡈⡐⡠⣀⣄⣤⣴⣶⣾⣿⣷⣧⣥⣠⣀⡀⢀⠁⠈⠐⠠"
 
 
 class _Phase(Enum):
@@ -37,14 +37,20 @@ Available commands:
   /stream  — Toggle streaming mode on/off
   /think   — Toggle thinking mode on/off
   /status  — Show current settings
+  /sessions — List all saved sessions
+  /resume <id> — Resume a previous session
+  /new     — Start a new session
+  /compact — Manually compress conversation history
   <text>   — Send a message to the agent
 """
 
 
-def _print_banner() -> None:
+def _print_banner(session_id: str = "") -> None:
     title = Text()
-    title.append("  Agent-Base-Zero v0.2\n", style="bold cyan")
-    title.append("  DeepSeek-powered AI Agent", style="dim")
+    title.append("  Agent-Base-Zero v0.3\n", style="bold cyan")
+    title.append("  DeepSeek-powered AI Agent\n", style="dim")
+    if session_id:
+        title.append(f"  Session: {session_id}", style="dim")
     console.print(Panel(title, border_style="cyan", padding=(1, 2)))
     console.print(
         "Type [bold]/help[/bold] for commands, [bold]/exit[/bold] to quit.",
@@ -179,9 +185,11 @@ def _stream_response(
 
 def run_cli() -> None:
     """Start the interactive CLI loop."""
-    _print_banner()
-
     agent = Agent()
+    agent.load_memory()
+
+    _print_banner(session_id=agent.session_id)
+
     stream_enabled = settings.stream_enabled
     thinking_enabled = settings.thinking_enabled
 
@@ -228,9 +236,78 @@ def run_cli() -> None:
                 console.print(f"Thinking mode: {state}", style="bold yellow")
                 continue
             elif cmd == "/status":
-                console.print(f"  Streaming: {'on' if stream_enabled else 'off'}")
-                console.print(f"  Thinking:  {'on' if thinking_enabled else 'off'}")
-                console.print(f"  Model:     {settings.deepseek_model}")
+                from agent.tokens import get_token_usage
+
+                usage = get_token_usage(agent.messages, settings.max_context_tokens)
+                console.print(f"  Streaming:    {'on' if stream_enabled else 'off'}")
+                console.print(f"  Thinking:     {'on' if thinking_enabled else 'off'}")
+                console.print(f"  Model:        {settings.deepseek_model}")
+                console.print(f"  Session:      {agent.session_id}")
+                console.print(f"  Messages:     {len(agent.messages)}")
+                console.print(f"  Token usage:  ~{usage['used']:,} / {usage['max']:,} ({usage['percent']:.0f}%)")
+                continue
+            elif cmd == "/sessions":
+                from agent.session import list_sessions
+
+                sessions = list_sessions()
+                if not sessions:
+                    console.print("[dim]No saved sessions.[/dim]")
+                else:
+                    for s in sessions:
+                        console.print(
+                            f"  [cyan]{s['session_id']}[/cyan]  "
+                            f"[dim]{s['updated_at'][:19]}[/dim]  "
+                            f"{s['title'][:50]}  "
+                            f"[dim]({s['message_count']} msgs)[/dim]"
+                        )
+                continue
+            elif cmd.startswith("/resume"):
+                parts = user_input.strip().split(maxsplit=1)
+                if len(parts) < 2:
+                    console.print("[bold red]Usage: /resume <session_id>[/bold red]")
+                    continue
+                target_id = parts[1].strip()
+                try:
+                    agent.load_session_data(target_id)
+                    console.print(f"[green]Resumed session {target_id}[/green]")
+                    console.print(f"  [dim]{len(agent.messages)} messages loaded[/dim]")
+                except FileNotFoundError:
+                    console.print(f"[bold red]Session not found: {target_id}[/bold red]")
+                except Exception:
+                    console.print(f"[bold red]Session file corrupted: {target_id}[/bold red]")
+                continue
+            elif cmd == "/new":
+                old_id = agent.session_id
+                new_id = agent.new_session()
+                console.print(f"[green]New session started: {new_id}[/green]")
+                console.print(f"  [dim]Previous session {old_id} preserved[/dim]")
+                continue
+            elif cmd == "/compact":
+                from agent.tokens import compress_messages, get_token_usage
+
+                total = len(agent.messages)
+                min_required = settings.head_keep + settings.tail_keep
+                if total <= min_required:
+                    console.print(
+                        f"[yellow]Not enough messages to compress "
+                        f"({total} msgs, need > {min_required}).[/yellow]"
+                    )
+                    continue
+                try:
+                    usage_before = get_token_usage(agent.messages, settings.max_context_tokens)
+                    agent.messages = compress_messages(
+                        agent.client,
+                        agent.messages,
+                        head_keep=settings.head_keep,
+                        tail_keep=settings.tail_keep,
+                    )
+                    usage_after = get_token_usage(agent.messages, settings.max_context_tokens)
+                    console.print(
+                        f"[green]Compressed: {total} -> {len(agent.messages)} messages, "
+                        f"tokens ~{usage_before['used']} -> ~{usage_after['used']}[/green]"
+                    )
+                except Exception as e:
+                    console.print(f"[bold red]Compression failed: {e}[/bold red]")
                 continue
             else:
                 console.print(

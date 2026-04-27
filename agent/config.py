@@ -23,6 +23,15 @@ class Settings(BaseSettings):
     # Timezone
     default_timezone: str = "Asia/Shanghai"
 
+    # Context management (v0.3)
+    max_context_tokens: int = 64000
+    compression_threshold: float = 0.95
+    head_keep: int = 3
+    tail_keep: int = 20
+
+    # Session (v0.3)
+    auto_save: bool = True
+
     class Config:
         env_file = str(Path(__file__).resolve().parent.parent / ".env")
         case_sensitive = False

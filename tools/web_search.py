@@ -10,7 +10,11 @@ SCHEMA = {
     "name": "web_search",
     "description": (
         "Search the web using DuckDuckGo. "
-        "Returns a list of results with title, URL, and a short snippet."
+        "Returns a list of results with title, URL, and a short snippet.\n\n"
+        "Guidelines:\n"
+        "- Search at most 2-3 times per question. After that, synthesize what you have or tell the user.\n"
+        "- Do NOT repeat the same query — if results were insufficient, try a different angle or stop searching.\n"
+        "- Make queries concrete and specific (resolve dates, names, etc.)."
     ),
     "parameters": {
         "type": "object",

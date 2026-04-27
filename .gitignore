@@ -17,6 +17,9 @@ venv/
 # Environment
 .env
 
+# Agent data
+.genesis/
+
 # OS
 .DS_Store
 Thumbs.db
