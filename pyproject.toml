@@ -1,8 +1,9 @@
 [project]
 name = "agent-base-zero"
-version = "0.4.0"
+version = "0.5.0"
 description = "A step-by-step guide to building a general-purpose AI agent, from simple to complex."
 readme = "README.md"
+license = "MIT"
 requires-python = ">=3.11"
 dependencies = [
     "openai>=1.0.0",
@@ -12,6 +13,7 @@ dependencies = [
     "ddgs>=7.0.0",
     "beautifulsoup4>=4.12.0",
     "tzdata>=2024.1",
+    "prompt-toolkit>=3.0.0",
 ]
 
 [build-system]

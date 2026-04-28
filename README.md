@@ -15,10 +15,10 @@ The entire codebase evolves through git commits — each version introduces a ne
 | **v0.2** | Streaming & thinking | Streaming output, DeepSeek thinking mode, web search, current_time tool |
 | **v0.3** | Memory system | Session persistence, long-term memory, context compression |
 | **v0.4** | Skill system | Skill registration, PromptManager, LLM auto-activation, composite tools |
-| v0.5 | Planning & execution | Task decomposition, multi-step planning, self-reflection |
+| **v0.5** | Plan Mode | Plan/Normal dual mode, read-only exploration, structured planning, step-by-step execution |
 | v0.6 | Social media integration | API integrations, async operations |
 | v0.7 | Multi-agent collaboration | Agent cooperation, task routing |
-Current progress: v0.4
+Current progress: v0.5
 
 ## Quick Start
 
@@ -102,7 +102,7 @@ Built on top of v0.2 with session persistence, long-term memory, and context com
 | `/new` | Start a fresh session |
 | `/compact` | Manually compress conversation history |
 
-## v0.4 — Skill System (Current)
+## v0.4 — Skill System
 
 Built on top of v0.3 with skill registration, PromptManager, LLM-driven skill activation, and composite tools.
 
@@ -140,6 +140,34 @@ Skill instructions:
 | `/unskill` | Deactivate current skill |
 | `/status` | Now shows active skill |
 
+## v0.5 — Plan Mode (Current)
+
+Built on top of v0.4 with Plan/Normal dual mode, tool classification, structured planning, interactive review, and step-by-step execution.
+
+**Plan Mode** — A dual-mode workflow that separates read-only exploration/planning from execution. Press **Shift+Tab** or type `/plan` to toggle between Normal mode (all tools available) and Plan mode (read-only tools only). In Plan mode, the Agent explores the codebase, analyzes the task, and generates a structured plan for user review before any changes are made.
+
+**Tool classification** — All tools are classified as either `read_only` or `write` in `tools/registry.py`. In Plan mode, the LLM only receives read-only tool definitions (read_file, list_dir, grep_search, etc.), and a hard guard at the execution layer blocks any write tool calls — even if the model "hallucinates" them from prior Normal-mode conversation history.
+
+**Structured planning** — The LLM generates plans in a fixed format (Goal + numbered Steps). The plan parser supports multiple format variations (numbering styles, separators). A loose fallback parser detects plans without formal section headers.
+
+**Interactive review** — After the Agent generates a plan, a magenta-bordered panel displays the goal and proposed steps. The user can Accept (execute), Modify (provide feedback for revision, up to 3 rounds), or Cancel.
+
+**Step-by-step execution** — Once accepted, the Agent switches to Normal mode and executes each step silently. A live progress display with shimmer animation shows real-time status for each step (Pending → In Progress → Done/Failed/Skipped). On failure, the user can choose to continue or stop.
+
+**Visual enhancements** — `prompt_toolkit` input handler with Shift+Tab detection, Rich Live progress bar with 8fps auto-refresh, shimmer light-sweep animation on "In Progress" text, and a completion summary panel.
+
+**Plan Mode commands:**
+- `/plan` or **Shift+Tab** — Toggle Plan / Normal mode
+- `/status` — Now shows current mode (Normal / Plan)
+
+| Feature | Description |
+|---------|-------------|
+| `/plan` | Toggle Plan / Normal mode |
+| Shift+Tab | Toggle mode during input |
+| Plan Review | Accept / Modify / Cancel plan before execution |
+| Live Progress | Real-time step status with shimmer animation |
+| Write Guard | Execution-layer blocks write tools in Plan mode |
+
 ## Project Structure
 
 ```
@@ -147,15 +175,22 @@ Agent-Base-Zero/
 ├── agent/
 │   ├── config.py          # Pydantic Settings, reads from .env
 │   ├── client.py          # DeepSeek API client (OpenAI SDK, streaming + thinking)
-│   ├── prompt.py          # PromptManager: base prompt + skills index (v0.4)
-│   ├── system_prompt.md   # Base system prompt (v0.4)
-│   ├── agent.py           # Core agent loop + StreamEvent streaming
+│   ├── prompt.py          # PromptManager: base prompt + plan mode + skills index (v0.4+)
+│   ├── prompts/           # Prompt templates directory (v0.5)
+│   │   ├── system_prompt.md   # Base system prompt (v0.4)
+│   │   └── plan_prompt.md     # Plan Mode system prompt (v0.5)
+│   ├── plan.py            # Plan data structures: PlanPhase, StepStatus, PlanStep, Plan (v0.5)
+│   ├── plan_parser.py     # Parse structured plan output from LLM responses (v0.5)
+│   ├── plan_input.py      # InputHandler with Shift+Tab key binding (v0.5)
+│   ├── plan_renderer.py   # Plan review + live progress bar rendering (v0.5)
+│   ├── shimmer.py         # Shared shimmer animation position calculator (v0.5)
+│   ├── agent.py           # Core agent loop + StreamEvent streaming + Plan mode
 │   ├── session.py         # Session persistence and recovery (v0.3)
 │   ├── memory.py          # Long-term memory storage (v0.3)
 │   ├── tokens.py          # Token estimation and context compression (v0.3)
-│   └── cli.py             # Interactive CLI (Rich, streaming renderer)
+│   └── cli.py             # Interactive CLI (Rich, streaming renderer, Plan mode)
 ├── tools/
-│   ├── registry.py        # Tool registry (register + dispatch)
+│   ├── registry.py        # Tool registry (register + dispatch + read_only/write categories)
 │   ├── read_file.py       # Read file contents
 │   ├── write_file.py      # Write to files
 │   ├── list_dir.py        # List directory entries
@@ -182,7 +217,8 @@ Agent-Base-Zero/
 │   ├── v01/               # v0.1 architecture docs (zh + en)
 │   ├── v02/               # v0.2 architecture docs (zh + en)
 │   ├── v03/               # v0.3 architecture docs (zh + en)
-│   └── v04/               # v0.4 architecture docs (zh + en)
+│   ├── v04/               # v0.4 architecture docs (zh + en)
+│   └── v05/               # v0.5 architecture docs (zh + en)
 ├── main.py                # Entry point (python main.py)
 ├── pyproject.toml         # Project config & dependencies
 └── .env                   # Your API key (not tracked)

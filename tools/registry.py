@@ -19,6 +19,31 @@ logger = logging.getLogger(__name__)
 class ToolRegistry:
     """Registry that collects tool schemas + handlers from tool files."""
 
+    # v0.5: Tool classification for Plan Mode.
+    # Read-only tools can be used in Plan Mode; write tools are blocked.
+    _TOOL_CATEGORIES: Dict[str, str] = {
+        # Read-only tools
+        "read_file": "read_only",
+        "list_dir": "read_only",
+        "tree": "read_only",
+        "find_file": "read_only",
+        "grep_search": "read_only",
+        "web_search": "read_only",
+        "fetch_url": "read_only",
+        "research_topic": "read_only",
+        "current_time": "read_only",
+        "system_info": "read_only",
+        "session_search": "read_only",
+        # Write tools
+        "write_file": "write",
+        "edit_file": "write",
+        "file_delete": "write",
+        "run_command": "write",
+        "memory_save": "write",
+        "activate_skill": "write",
+        "deactivate_skill": "write",
+    }
+
     def __init__(self):
         self._tools: Dict[str, dict] = {}
         # Each entry: {"schema": dict, "handler": Callable}
@@ -73,6 +98,18 @@ class ToolRegistry:
     def get_all_names(self) -> List[str]:
         """Return sorted list of all registered tool names."""
         return sorted(self._tools.keys())
+
+    def get_read_only_names(self) -> List[str]:
+        """Return sorted list of read-only tool names (for Plan Mode)."""
+        return sorted(
+            name
+            for name in self._tools
+            if self._TOOL_CATEGORIES.get(name) == "read_only"
+        )
+
+    def is_write_tool(self, name: str) -> bool:
+        """Check if a tool is classified as a write tool."""
+        return self._TOOL_CATEGORIES.get(name) == "write"
 
 
 # Global singleton — import this from everywhere.

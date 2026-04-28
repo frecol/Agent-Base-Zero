@@ -47,6 +47,8 @@ class Agent:
         self.messages: List[dict] = []
         self.session_id = session_id or generate_session_id()
         self._memory_text: str = ""
+        # v0.5: Plan Mode flag
+        self._plan_mode: bool = False
 
         # Register skill activation callback.
         from skills.registry import skill_registry
@@ -71,9 +73,20 @@ class Agent:
         return result
 
     def _get_tools(self) -> Optional[List[dict]]:
-        """Return tool definitions for the API call."""
-        names = registry.get_all_names()
+        """Return tool definitions for the API call.
+
+        In plan mode, only read-only tools are available.
+        """
+        if self._plan_mode:
+            names = registry.get_read_only_names()
+        else:
+            names = registry.get_all_names()
         return registry.get_definitions(names) if names else None
+
+    def set_plan_mode(self, enabled: bool) -> None:
+        """Toggle plan mode. Filters available tools accordingly."""
+        self._plan_mode = enabled
+        self.prompt_manager.set_plan_mode(enabled)
 
     def _execute_tool_calls(
         self,
@@ -93,6 +106,22 @@ class Agent:
                 args = json.loads(tc.function.arguments)
             except json.JSONDecodeError:
                 args = {}
+
+            # v0.5: Block write tools in Plan Mode (execution-layer guard).
+            # The model may hallucinate write tool calls even when they aren't
+            # in the provided tools list (e.g. after a Normal-mode turn).
+            if self._plan_mode and registry.is_write_tool(name):
+                rejected = json.dumps({
+                    "error": f"Tool '{name}' is not available in Plan Mode."
+                })
+                if on_tool_result:
+                    on_tool_result(name, "Blocked: write tool in plan mode")
+                self.messages.append({
+                    "role": "tool",
+                    "tool_call_id": tc.id,
+                    "content": rejected,
+                })
+                continue
 
             if on_tool_call:
                 on_tool_call(name, args)
@@ -115,6 +144,7 @@ class Agent:
         user_input: str,
         on_tool_call: Optional[Callable] = None,
         on_tool_result: Optional[Callable] = None,
+        thinking_enabled: bool = False,
     ) -> str:
         """Process one user turn: call LLM, handle tool calls, return final response.
 
@@ -131,14 +161,20 @@ class Agent:
         tools = self._get_tools()
 
         for _ in range(self.max_iterations):
-            api_messages = self._build_messages()
-            response = self.client.chat(api_messages, tools=tools)
+            api_messages = self._build_messages(thinking_enabled=thinking_enabled)
+            response = self.client.chat(
+                api_messages, tools=tools, thinking_enabled=thinking_enabled
+            )
 
             choice = response.choices[0]
             assistant_msg = choice.message
 
             # Build the message dict to append to history
             msg_dict: dict = {"role": "assistant", "content": assistant_msg.content or ""}
+
+            # Preserve reasoning_content when thinking mode is enabled
+            if thinking_enabled and hasattr(assistant_msg, "reasoning_content") and assistant_msg.reasoning_content:
+                msg_dict["reasoning_content"] = assistant_msg.reasoning_content
 
             # Check for tool calls
             if assistant_msg.tool_calls:

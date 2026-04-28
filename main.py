@@ -1,4 +1,4 @@
-"""Agent-Base-Zero v0.4 — Entry point.
+"""Agent-Base-Zero v0.5 — Entry point.
 
 A minimal AI agent powered by DeepSeek, with tool-calling support.
 """

@@ -4,7 +4,7 @@ The system prompt is assembled once at startup and stays stable for the
 entire session, preserving prompt prefix caching.
 
 Layers:
-  1. base prompt  — loaded from agent/system_prompt.md
+  1. base prompt  — loaded from agent/prompts/system_prompt.md
   2. skills index — generated from discovered skills (names + descriptions)
 
 Skill detailed instructions are NOT part of this prompt. They are returned
@@ -17,7 +17,7 @@ from typing import Optional
 
 logger = logging.getLogger(__name__)
 
-_DEFAULT_PROMPT_PATH = Path(__file__).resolve().parent / "system_prompt.md"
+_DEFAULT_PROMPT_PATH = Path(__file__).resolve().parent / "prompts" / "system_prompt.md"
 
 
 class PromptManager:
@@ -50,17 +50,31 @@ class PromptManager:
                 "You are a CLI AI Agent.Try not to use markdown but simple text renderable inside a terminal."
             )
         self._skills_index: str = ""
+        # v0.5: Plan Mode prompt
+        self._plan_mode_enabled: bool = False
+        self._plan_mode_prompt: str = ""
+        plan_prompt_path = Path(__file__).resolve().parent / "prompts" / "plan_prompt.md"
+        if plan_prompt_path.exists():
+            self._plan_mode_prompt = plan_prompt_path.read_text(encoding="utf-8").strip()
 
     def update_skills_index(self, skills_index: str) -> None:
         """Set the skills index text (called once at startup)."""
         self._skills_index = skills_index
 
-    def get_system_prompt(self) -> str:
-        """Return the assembled system prompt: base + skills index.
+    def set_plan_mode(self, enabled: bool) -> None:
+        """Toggle plan mode prompt injection."""
+        self._plan_mode_enabled = enabled
 
+    def get_system_prompt(self) -> str:
+        """Return the assembled system prompt: base + plan mode + skills index.
+
+        Plan mode prompt is conditionally injected when enabled.
         This is stable across the entire session — skill activation does NOT
         change it. Skill instructions enter the conversation via tool results.
         """
+        parts = [self._base_prompt]
+        if self._plan_mode_enabled and self._plan_mode_prompt:
+            parts.append(self._plan_mode_prompt)
         if self._skills_index:
-            return f"{self._base_prompt}\n\n{self._skills_index}"
-        return self._base_prompt
+            parts.append(self._skills_index)
+        return "\n\n".join(parts)
