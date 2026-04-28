@@ -14,11 +14,11 @@ The entire codebase evolves through git commits — each version introduces a ne
 | **v0.1** | Minimum viable agent | Agent loop, tool calling, CLI, tool registry |
 | **v0.2** | Streaming & thinking | Streaming output, DeepSeek thinking mode, web search, current_time tool |
 | **v0.3** | Memory system | Session persistence, long-term memory, context compression |
-| v0.4 | Skill system | Skill registration, Prompt templates, tool composition |
+| **v0.4** | Skill system | Skill registration, PromptManager, LLM auto-activation, composite tools |
 | v0.5 | Planning & execution | Task decomposition, multi-step planning, self-reflection |
 | v0.6 | Social media integration | API integrations, async operations |
 | v0.7 | Multi-agent collaboration | Agent cooperation, task routing |
-Current progress: v0.3
+Current progress: v0.4
 
 ## Quick Start
 
@@ -75,7 +75,7 @@ Built on top of v0.1 with three major additions:
 
 Other improvements: `max_tokens` raised to 8192, new CLI commands (`/stream`, `/think`, `/status`), refined system prompt, and enhanced tool call display with Rich `Panel` components.
 
-## v0.3 — Memory System (Current)
+## v0.3 — Memory System
 
 Built on top of v0.2 with session persistence, long-term memory, and context compression.
 
@@ -102,6 +102,44 @@ Built on top of v0.2 with session persistence, long-term memory, and context com
 | `/new` | Start a fresh session |
 | `/compact` | Manually compress conversation history |
 
+## v0.4 — Skill System (Current)
+
+Built on top of v0.3 with skill registration, PromptManager, LLM-driven skill activation, and composite tools.
+
+**Skill system** — Each skill is a folder in `skills/` containing a `SKILL.md` file (YAML frontmatter + Markdown instructions). Skills are auto-discovered at startup. The SKILL.md format is compatible with the standard skill format used across the ecosystem.
+
+**PromptManager** — Replaces the hardcoded `SYSTEM_PROMPT` in `client.py`. Loads the base prompt from `agent/system_prompt.md` and appends a skills index (all skill names + descriptions) at startup. The system prompt stays stable throughout the session, preserving prompt prefix caching.
+
+**LLM auto-activation** — The LLM sees the skills index in the system prompt and autonomously calls `activate_skill(name)` when a task matches a skill. The skill's detailed instructions are returned as a tool result (not injected into the system prompt), so the prompt prefix cache is never broken. The LLM can also call `deactivate_skill` to return to base mode.
+
+**Composite tools** — A new `research_topic` tool demonstrates tool composition: its handler internally chains `web_search` + `fetch_url` via `registry.dispatch()` to provide a one-call research capability.
+
+**Cache-friendly design:**
+```
+System prompt (stable prefix):
+  base prompt + skills index → never changes → cache hits preserved
+
+Skill instructions:
+  activate_skill tool result → enters conversation history
+  system prompt unchanged
+```
+
+**Skill commands:**
+- `/skills` — List all available skills (marks active, shows auto-only)
+- `/skill <name>` — Manually activate a skill (respects `user_invocable`)
+- `/unskill` — Deactivate current skill
+
+**Example skills:**
+- `research` — Web research specialist with search strategy and source citation guidelines
+- `code_assistant` — Code assistant specialist with debugging and code style guidelines
+
+| Feature | Description |
+|---------|-------------|
+| `/skills` | List all available skills (auto-only marked) |
+| `/skill <name>` | Activate a skill (respects `user_invocable`) |
+| `/unskill` | Deactivate current skill |
+| `/status` | Now shows active skill |
+
 ## Project Structure
 
 ```
@@ -109,6 +147,8 @@ Agent-Base-Zero/
 ├── agent/
 │   ├── config.py          # Pydantic Settings, reads from .env
 │   ├── client.py          # DeepSeek API client (OpenAI SDK, streaming + thinking)
+│   ├── prompt.py          # PromptManager: base prompt + skills index (v0.4)
+│   ├── system_prompt.md   # Base system prompt (v0.4)
 │   ├── agent.py           # Core agent loop + StreamEvent streaming
 │   ├── session.py         # Session persistence and recovery (v0.3)
 │   ├── memory.py          # Long-term memory storage (v0.3)
@@ -130,11 +170,19 @@ Agent-Base-Zero/
 │   ├── file_delete.py     # Delete a specified file (v0.3)
 │   ├── system_info.py     # Get system runtime information (v0.3)
 │   ├── memory_save.py     # Save facts to long-term memory (v0.3)
-│   └── session_search.py  # Search past conversations (v0.3)
+│   ├── session_search.py  # Search past conversations (v0.3)
+│   └── research_topic.py  # Composite tool: search + fetch (v0.4)
+├── skills/
+│   ├── registry.py        # Skill registry, SKILL.md parsing, skill tools (v0.4)
+│   ├── research/          # Web research skill (v0.4)
+│   │   └── SKILL.md
+│   └── code_assistant/    # Code assistant skill (v0.4)
+│       └── SKILL.md
 ├── docs/
 │   ├── v01/               # v0.1 architecture docs (zh + en)
 │   ├── v02/               # v0.2 architecture docs (zh + en)
-│   └── v03/               # v0.3 architecture docs (zh + en)
+│   ├── v03/               # v0.3 architecture docs (zh + en)
+│   └── v04/               # v0.4 architecture docs (zh + en)
 ├── main.py                # Entry point (python main.py)
 ├── pyproject.toml         # Project config & dependencies
 └── .env                   # Your API key (not tracked)
@@ -169,3 +217,22 @@ registry.register("my_tool", SCHEMA, handler)
 ```
 
 Drop the file in `tools/` — it's auto-discovered on startup.
+
+## Adding a New Skill
+
+Each skill is a folder with a `SKILL.md` file:
+
+```markdown
+<!-- skills/my_skill/SKILL.md -->
+---
+name: my_skill
+description: "What this skill does and when to activate it."
+user_invocable: true
+---
+
+# My Skill
+
+Detailed instructions for the LLM when this skill is active...
+```
+
+Drop the folder in `skills/` — it's auto-discovered on startup. The `name` and `description` appear in the system prompt's skills index, and the LLM can activate the skill by calling `activate_skill("my_skill")`. Set `user_invocable: false` to restrict activation to LLM-only (hidden from `/skill` CLI command, shown as `(auto-only)` in `/skills`).

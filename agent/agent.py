@@ -11,7 +11,8 @@ import types
 from dataclasses import dataclass, field
 from typing import Callable, Generator, List, Optional
 
-from agent.client import DeepSeekClient, SYSTEM_PROMPT
+from agent.client import DeepSeekClient
+from agent.prompt import PromptManager
 from agent.session import generate_session_id
 from agent.tokens import needs_compression
 from tools.registry import registry
@@ -36,16 +37,20 @@ class Agent:
     def __init__(
         self,
         client: Optional[DeepSeekClient] = None,
-        system_prompt: Optional[str] = None,
+        prompt_manager: Optional[PromptManager] = None,
         max_iterations: int = MAX_TOOL_ITERATIONS,
         session_id: Optional[str] = None,
     ):
         self.client = client or DeepSeekClient()
-        self.system_prompt = system_prompt or SYSTEM_PROMPT
+        self.prompt_manager = prompt_manager or PromptManager()
         self.max_iterations = max_iterations
         self.messages: List[dict] = []
         self.session_id = session_id or generate_session_id()
         self._memory_text: str = ""
+
+        # Register skill activation callback.
+        from skills.registry import skill_registry
+        skill_registry.set_on_activate(self._on_skill_change)
 
     def _build_messages(self, thinking_enabled: bool = False) -> List[dict]:
         """Prepend system prompt to conversation history.
@@ -55,7 +60,7 @@ class Agent:
                 (needed for multi-step tool call reasoning within a turn).
                 If False, strip reasoning_content to save bandwidth.
         """
-        result = [{"role": "system", "content": self.system_prompt}]
+        result = [{"role": "system", "content": self.prompt_manager.get_system_prompt()}]
         # v0.3: Inject long memory as a separate system message
         if self._memory_text:
             result.append({"role": "system", "content": self._memory_text})
@@ -281,6 +286,66 @@ class Agent:
     def reset(self) -> None:
         """Clear conversation history."""
         self.messages.clear()
+
+    # ------------------------------------------------------------------
+    # v0.4: Skill activation
+    # ------------------------------------------------------------------
+
+    def _on_skill_change(self, skill_name: str, prompt_text: str) -> None:
+        """Callback from SkillRegistry when skill activation state changes.
+
+        Extension point for future features (e.g. filtering available tools
+        when a skill is active). Skill instructions are already delivered via
+        tool result or injected by activate_skill(), so no action needed here.
+        """
+        pass
+
+    def activate_skill(self, skill_name: str) -> str:
+        """Activate a skill (for CLI /skill command). Returns confirmation."""
+        from skills.registry import skill_registry
+
+        skill = skill_registry.get_skill(skill_name)
+        if not skill:
+            return f"Unknown skill: {skill_name}. Use /skills to see available skills."
+        if not skill.user_invocable:
+            return f"Skill '{skill_name}' cannot be activated manually (auto-only)."
+        skill_registry.activate(skill_name)
+        # Inject skill instructions into conversation so the LLM knows about them.
+        # This mirrors what happens when the LLM activates a skill via the
+        # activate_skill tool (instructions arrive as a tool result).
+        import json
+
+        tool_result = json.dumps(
+            {"success": True, "skill": skill_name, "instructions": skill.prompt_text},
+            ensure_ascii=False,
+        )
+        fake_tool_id = f"cli_skill_{skill_name}"
+        self.messages.append({
+            "role": "assistant",
+            "content": "",
+            "tool_calls": [{
+                "id": fake_tool_id,
+                "type": "function",
+                "function": {"name": "activate_skill", "arguments": json.dumps({"skill_name": skill_name})},
+            }],
+        })
+        self.messages.append({
+            "role": "tool",
+            "tool_call_id": fake_tool_id,
+            "content": tool_result,
+        })
+        return f"Skill '{skill_name}' activated: {skill.description}"
+
+    def deactivate_skill(self) -> str:
+        """Deactivate the current skill (for CLI /unskill command)."""
+        from skills.registry import skill_registry
+
+        active = skill_registry.get_active()
+        if not active:
+            return "No skill is currently active."
+        name = active.name
+        skill_registry.deactivate()
+        return f"Skill '{name}' deactivated. Back to base mode."
 
     # ------------------------------------------------------------------
     # v0.3: Session & Memory integration

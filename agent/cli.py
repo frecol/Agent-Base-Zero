@@ -3,6 +3,9 @@
 import sys
 from enum import Enum, auto
 
+import tools  # auto-discovers all tool modules
+import skills  # auto-discovers all skill folders
+
 from rich.console import Console
 from rich.markdown import Markdown
 from rich.panel import Panel
@@ -34,6 +37,9 @@ Available commands:
   /clear   — Clear conversation history
   /exit    — Exit the program
   /tools   — List available tools
+  /skills  — List available skills
+  /skill <name> — Activate a skill
+  /unskill — Deactivate current skill
   /stream  — Toggle streaming mode on/off
   /think   — Toggle thinking mode on/off
   /status  — Show current settings
@@ -47,7 +53,7 @@ Available commands:
 
 def _print_banner(session_id: str = "") -> None:
     title = Text()
-    title.append("  Agent-Base-Zero v0.3\n", style="bold cyan")
+    title.append("  Agent-Base-Zero v0.4\n", style="bold cyan")
     title.append("  DeepSeek-powered AI Agent\n", style="dim")
     if session_id:
         title.append(f"  Session: {session_id}", style="dim")
@@ -185,7 +191,12 @@ def _stream_response(
 
 def run_cli() -> None:
     """Start the interactive CLI loop."""
-    agent = Agent()
+    from agent.prompt import PromptManager
+    from skills.registry import build_skills_index
+
+    prompt_mgr = PromptManager()
+    prompt_mgr.update_skills_index(build_skills_index())
+    agent = Agent(prompt_manager=prompt_mgr)
     agent.load_memory()
 
     _print_banner(session_id=agent.session_id)
@@ -225,6 +236,37 @@ def run_cli() -> None:
                     f"Available tools ({len(names)}): {', '.join(names)}"
                 )
                 continue
+            elif cmd == "/skills":
+                from skills.registry import skill_registry
+
+                names = skill_registry.get_all_names()
+                active = skill_registry.get_active()
+                if not names:
+                    console.print("[dim]No skills available.[/dim]")
+                else:
+                    console.print(f"Available skills ({len(names)}):")
+                    for name in names:
+                        skill = skill_registry.get_skill(name)
+                        marker = " [bold green]*(active)[/bold green]" if active and active.name == name else ""
+                        auto_only = " [dim](auto-only)[/dim]" if not skill.user_invocable else ""
+                        console.print(f"  [cyan]{name}[/cyan]{marker}{auto_only} - {skill.description}")
+                continue
+            elif cmd.startswith("/skill ") or cmd == "/skill":
+                parts = user_input.strip().split(maxsplit=1)
+                if len(parts) < 2:
+                    console.print("[bold red]Usage: /skill <name>[/bold red]")
+                    continue
+                skill_name = parts[1].strip()
+                msg = agent.activate_skill(skill_name)
+                if msg.startswith("Unknown") or msg.startswith("Skill '") and "cannot" in msg:
+                    console.print(f"[bold red]{msg}[/bold red]")
+                else:
+                    console.print(f"[green]{msg}[/green]")
+                continue
+            elif cmd == "/unskill":
+                msg = agent.deactivate_skill()
+                console.print(f"[yellow]{msg}[/yellow]")
+                continue
             elif cmd == "/stream":
                 stream_enabled = not stream_enabled
                 state = "on" if stream_enabled else "off"
@@ -237,12 +279,16 @@ def run_cli() -> None:
                 continue
             elif cmd == "/status":
                 from agent.tokens import get_token_usage
+                from skills.registry import skill_registry
 
                 usage = get_token_usage(agent.messages, settings.max_context_tokens)
+                active_skill = skill_registry.get_active()
+                active_skill_name = active_skill.name if active_skill else "none"
                 console.print(f"  Streaming:    {'on' if stream_enabled else 'off'}")
                 console.print(f"  Thinking:     {'on' if thinking_enabled else 'off'}")
                 console.print(f"  Model:        {settings.deepseek_model}")
                 console.print(f"  Session:      {agent.session_id}")
+                console.print(f"  Active Skill: {active_skill_name}")
                 console.print(f"  Messages:     {len(agent.messages)}")
                 console.print(f"  Token usage:  ~{usage['used']:,} / {usage['max']:,} ({usage['percent']:.0f}%)")
                 continue
